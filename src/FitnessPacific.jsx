@@ -1171,7 +1171,7 @@ function AthleteApp({ athlete, workouts, events, messages, onSendMessage, foodLo
                       liftLog, onLogLift }) {
   const [tab, setTab] = useState("home");
   const [selectedDate, setSelectedDate] = useState(todayISO());
-  const [logging, setLogging] = useState(null); // null | 'weight' | 'mood' | 'steps' | 'sleep'
+  const [logging, setLogging] = useState(null); // null | 'weight' | 'mood' | 'steps' | 'water' | 'sleep'
   const [liftDraft, setLiftDraft] = useState(null);  // { exercise, date, existing } | null
   const [historyFor, setHistoryFor] = useState(null); // exercise name to view history of
 
@@ -1208,8 +1208,8 @@ function AthleteApp({ athlete, workouts, events, messages, onSendMessage, foodLo
                                               onLogWeight={() => setLogging("weight")}
                                               onLogMood={() => setLogging("mood")}
                                               onLogSteps={() => setLogging("steps")}
+                                              onLogWater={() => setLogging("water")}
                                               onLogSleep={() => setLogging("sleep")}
-                                              onAddWater={onAddWater}
                                               liftLog={liftLog}
                                               onLogLift={openLiftFor(today)}
                                               onViewHistory={(name) => setHistoryFor(name)} />}
@@ -1244,6 +1244,13 @@ function AthleteApp({ athlete, workouts, events, messages, onSendMessage, foodLo
             todaySteps={(stepsLog || []).find(s => s.date === todayISO())}
             onCancel={() => setLogging(null)}
             onSave={(entry) => { onAddSteps(entry); setLogging(null); }}
+          />
+        )}
+        {logging === "water" && (
+          <WaterLogModal
+            todayWater={(waterLog || []).find(w => w.date === todayISO())}
+            onCancel={() => setLogging(null)}
+            onSave={(entry) => { onAddWater(entry); setLogging(null); }}
           />
         )}
         {logging === "sleep" && (
@@ -1328,7 +1335,7 @@ function AthleteTabBar({ tab, setTab }) {
 
 function AthleteHome({ athlete, todayWorkout, todayMacros, setTab,
                        weightLog, moodLog, stepsLog, waterLog, sleepLog,
-                       onLogWeight, onLogMood, onLogSteps, onLogSleep, onAddWater,
+                       onLogWeight, onLogMood, onLogSteps, onLogSleep, onLogWater,
                        liftLog, onLogLift, onViewHistory }) {
   const greeting = (() => {
     const h = new Date().getHours();
@@ -1427,10 +1434,13 @@ function AthleteHome({ athlete, todayWorkout, todayMacros, setTab,
             onLog={onLogSteps}
             data={stepsLog} valueKey="steps"
           />
-          <WaterHabitCard
-            todayWater={todayWater} goal={2500}
-            onAddWater={onAddWater}
-            data={waterLog}
+          <DailyHabitCard
+            icon={Droplet} label="Water" color={T.carbs}
+            value={todayWater ? todayWater.ml : 0} goal={2500}
+            unit="L" formatValue={(v) => (v / 1000).toFixed(2)}
+            formatGoal={(g) => `${(g / 1000).toFixed(1)}L`}
+            onLog={onLogWater}
+            data={waterLog} valueKey="ml"
           />
           <DailyHabitCard
             icon={Moon} label="Sleep" color={T.fat}
@@ -1476,9 +1486,9 @@ function AthleteHome({ athlete, todayWorkout, todayMacros, setTab,
   );
 }
 
-// Compact daily-habit card (steps, sleep, etc.)
+// Compact daily-habit card (steps, water, sleep, etc.)
 function DailyHabitCard({ icon: Icon, label, color, value, goal, unit,
-                          formatValue, sub, onLog, data, valueKey }) {
+                          formatValue, formatGoal, sub, onLog, data, valueKey }) {
   const sorted = [...(data || [])].sort((a, b) => a.date.localeCompare(b.date));
   const pct = goal ? Math.min(value / goal, 1) : 0;
   return (
@@ -1499,7 +1509,7 @@ function DailyHabitCard({ icon: Icon, label, color, value, goal, unit,
         {formatValue ? formatValue(value) : value}<span style={{ fontSize: 11, color: T.muted, marginLeft: 3 }}>{unit}</span>
       </div>
       <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.muted, marginTop: 2 }}>
-        / {goal.toLocaleString("en-GB")}{unit}
+        / {formatGoal ? formatGoal(goal) : `${goal.toLocaleString("en-GB")}${unit}`}
       </div>
       {/* Goal progress */}
       <div style={{ height: 4, background: T.surface, borderRadius: 2, overflow: "hidden", marginTop: 8 }}>
@@ -1511,47 +1521,6 @@ function DailyHabitCard({ icon: Icon, label, color, value, goal, unit,
           <Sparkline data={sorted.slice(-7)} color={color} valueKey={valueKey} height={22} />
         </div>
       )}
-    </Card>
-  );
-}
-
-// Water-specific habit card with quick-add buttons
-function WaterHabitCard({ todayWater, goal, onAddWater, data }) {
-  const ml = todayWater ? todayWater.ml : 0;
-  const pct = Math.min(ml / goal, 1);
-  const sorted = [...(data || [])].sort((a, b) => a.date.localeCompare(b.date));
-  return (
-    <Card style={{ padding: 12, position: "relative", overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Droplet size={13} color={T.carbs} />
-          <span style={{ fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 1.5,
-            color: T.muted, textTransform: "uppercase" }}>Water</span>
-        </div>
-      </div>
-      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 22, letterSpacing: 1, color: T.text, lineHeight: 1.1 }}>
-        {(ml / 1000).toFixed(2)}<span style={{ fontSize: 11, color: T.muted, marginLeft: 3 }}>L</span>
-      </div>
-      <div style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.muted, marginTop: 2 }}>
-        / {(goal / 1000).toFixed(1)}L
-      </div>
-      <div style={{ height: 4, background: T.surface, borderRadius: 2, overflow: "hidden", marginTop: 8 }}>
-        <div style={{ height: "100%", width: `${pct * 100}%`, background: T.carbs, transition: "width 0.4s" }} />
-      </div>
-      {/* Quick-add buttons */}
-      <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
-        {[250, 500].map(amount => (
-          <button key={amount} onClick={() => onAddWater(amount)} type="button"
-            style={{
-              flex: 1, padding: "6px 4px", borderRadius: 6, cursor: "pointer",
-              background: T.surface, border: `1px solid ${T.border}`, color: T.carbs,
-              fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 0.5,
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 2,
-            }}>
-            <Plus size={9} />{amount}
-          </button>
-        ))}
-      </div>
     </Card>
   );
 }
@@ -2353,6 +2322,53 @@ function StepsLogModal({ todaySteps, onCancel, onSave }) {
         {val && parseInt(val) > 0 && (
           <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.muted, letterSpacing: 1 }}>
             {Math.round((parseInt(val) / 10000) * 100)}% of 10,000 step goal
+          </div>
+        )}
+        <div style={{ width: "100%" }}>
+          <Field label="Date">
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </Field>
+        </div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", width: "100%", marginTop: 4 }}>
+          <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
+          <Btn icon={Save} onClick={save} disabled={!val}>Save</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Water log modal ──────────────────────────────────────────────────
+function WaterLogModal({ todayWater, onCancel, onSave }) {
+  // Show value in litres for ease of entry (user types "2.5" not "2500")
+  const initial = todayWater ? (todayWater.ml / 1000).toFixed(2).replace(/\.?0+$/, "") : "";
+  const [val, setVal] = useState(initial);
+  const [date, setDate] = useState(todayISO());
+  const save = () => {
+    const litres = parseFloat(val);
+    if (!litres || litres < 0 || litres > 20) return;
+    const ml = Math.round(litres * 1000);
+    onSave({ date, ml });
+  };
+  return (
+    <Modal onClose={onCancel} title="Log Water" maxWidth={400}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+        <Droplet size={36} color={T.carbs} />
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+          <input
+            type="number" step="0.1" inputMode="decimal"
+            value={val} onChange={(e) => setVal(e.target.value)} autoFocus
+            placeholder="0"
+            style={{
+              ...inputStyle, fontFamily: FONT_DISPLAY, fontSize: 42, letterSpacing: 1,
+              textAlign: "center", width: 160, padding: "8px 12px", color: T.text,
+            }}
+          />
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 22, color: T.muted }}>L</span>
+        </div>
+        {val && parseFloat(val) > 0 && (
+          <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: T.muted, letterSpacing: 1 }}>
+            {Math.round((parseFloat(val) * 1000 / 2500) * 100)}% of 2.5L goal
           </div>
         )}
         <div style={{ width: "100%" }}>
@@ -4185,18 +4201,7 @@ export default function App() {
   const addMood   = replaceByDate(setMoodLogByAthlete);
   const addSteps  = replaceByDate(setStepsLogByAthlete);
   const addSleep  = replaceByDate(setSleepLogByAthlete);
-
-  // Water is incremental — adds to today's existing total
-  const addWater = (amount) => {
-    setWaterLogByAthlete(prev => {
-      const list = prev[currentAthlete.id] || [];
-      const today = todayISO();
-      const existing = list.find(w => w.date === today);
-      const others = list.filter(w => w.date !== today);
-      const ml = (existing ? existing.ml : 0) + amount;
-      return { ...prev, [currentAthlete.id]: [...others, { date: today, ml }] };
-    });
-  };
+  const addWater  = replaceByDate(setWaterLogByAthlete);
 
   // Lift logging — keyed by exercise name, replaces same-date entry
   const addLift = (exerciseName, entry) => {
