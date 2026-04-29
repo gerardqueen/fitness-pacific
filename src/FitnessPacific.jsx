@@ -4,7 +4,8 @@ import {
   Plus, Trash2, Clock, Flame, Zap, Heart, TrendingUp, TrendingDown, ChevronRight,
   Send, Bell, X, Circle, Target, Edit3, Save, RefreshCw, Activity,
   ScanLine, Frown, Meh, Smile, Laugh, Annoyed, Scale, LineChart as LineChartIcon,
-  Footprints, Droplet, Moon, BookOpen, Search, Info, Star, Trophy, CheckCircle2
+  Footprints, Droplet, Moon, BookOpen, Search, Info, Star, Trophy, CheckCircle2,
+  ExternalLink, CalendarPlus
 } from "lucide-react";
 
 // ── Embedded Fitness Pacific assets (base64-encoded PNGs) ─────────────
@@ -52,6 +53,12 @@ const FONT_DISPLAY = `"Bebas Neue", "Oswald", system-ui, sans-serif`;
 const FONT_BODY    = `"DM Sans", "Inter", system-ui, sans-serif`;
 const FONT_MONO    = `"JetBrains Mono", ui-monospace, monospace`;
 
+// ── External integrations ────────────────────────────────────────────
+// TeamUp handles class bookings and payments. We deep-link out to their
+// booking page rather than rebuild it. Update this URL if the gym ever
+// switches platforms or moves to a custom domain on TeamUp.
+const TEAMUP_BOOKING_URL = "https://goteamup.com/p/88113-fitness-pacific/";
+
 // Inject Google Fonts once
 if (typeof document !== "undefined" && !document.getElementById("fp-fonts")) {
   const link = document.createElement("link");
@@ -97,7 +104,7 @@ const seedWorkouts = () => ({
   a1: {
     [dateOffset(0)]: {
       id: "w-a1-0", title: "Lower Body Strength", type: "strength",
-      duration: 60, intensity: "Moderate–Hard",
+      duration: 60, intensity: "Moderate–Hard", releaseMode: "reveal-on-day",
       notes: "Focus on depth on squats. Last set should be RPE 8.",
       exercises: [
         { name: "Back Squat",       sets: 4, reps: "6",     load: "75% 1RM" },
@@ -108,7 +115,7 @@ const seedWorkouts = () => ({
     },
     [dateOffset(1)]: {
       id: "w-a1-1", title: "Conditioning — 'Pacific 21'", type: "conditioning",
-      duration: 35, intensity: "Hard",
+      duration: 35, intensity: "Hard", releaseMode: "reveal-on-day",
       notes: "21-15-9. Scale row to 800/600/400m if needed.",
       exercises: [
         { name: "Row",        sets: 1, reps: "1km / 750m / 500m", load: "—" },
@@ -118,8 +125,8 @@ const seedWorkouts = () => ({
     },
     [dateOffset(3)]: {
       id: "w-a1-3", title: "Upper Body Push/Pull", type: "strength",
-      duration: 55, intensity: "Moderate",
-      notes: "",
+      duration: 55, intensity: "Moderate", releaseMode: "always",
+      notes: "Visible early — heavy session, plan ahead and arrive fed.",
       exercises: [
         { name: "Bench Press",      sets: 4, reps: "6–8",  load: "Top set RPE 7" },
         { name: "Barbell Row",      sets: 4, reps: "8",    load: "Heavy" },
@@ -131,7 +138,7 @@ const seedWorkouts = () => ({
   a2: {
     [dateOffset(0)]: {
       id: "w-a2-0", title: "HIIT — 30/30 Intervals", type: "hiit",
-      duration: 25, intensity: "Hard",
+      duration: 25, intensity: "Hard", releaseMode: "reveal-on-day",
       notes: "8 rounds. 30s work / 30s rest. All-out efforts.",
       exercises: [
         { name: "Assault Bike",  sets: 8, reps: "30s",  load: "All out" },
@@ -142,6 +149,15 @@ const seedWorkouts = () => ({
   a3: {},
   a4: {},
 });
+
+// Visibility helper — workouts are visible to athlete on/after their date,
+// or any day if the coach has set releaseMode = "always".
+const isWorkoutVisibleToAthlete = (workout, dateKey) => {
+  if (!workout) return false;
+  const mode = workout.releaseMode || "reveal-on-day"; // default for older workouts
+  if (mode === "always") return true;
+  return dateKey <= todayISO();
+};
 
 // Generic calendar events (non-workout: check-ins, rest days, etc.)
 const seedEvents = () => ({
@@ -992,6 +1008,65 @@ function trendDelta(data, key) {
 }
 
 // ── Workout card (used both sides) ───────────────────────────────────
+// Lock icon as SVG since it isn't in our existing import set
+function LockIcon({ size = 14, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
+// Placeholder shown to athletes for workouts not yet released
+function LockedWorkoutCard({ workout, dateKey }) {
+  const meta = wt(workout.type);
+  const date = new Date(dateKey);
+  const today = todayISO();
+  const isFuture = dateKey > today;
+  const dayLabel = (() => {
+    if (!isFuture) return "Locked";
+    const todayDate = new Date(today);
+    const diffDays = Math.round((date - todayDate) / (1000 * 60 * 60 * 24));
+    if (diffDays === 1) return "Drops tomorrow";
+    if (diffDays <= 6) return `Drops ${date.toLocaleDateString("en-GB", { weekday: "long" })}`;
+    return `Drops ${date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`;
+  })();
+
+  return (
+    <div style={{
+      background: T.surface, border: `1px dashed ${T.border}`,
+      borderLeft: `3px solid ${meta.color}55`, borderRadius: 12,
+      padding: 16, position: "relative", overflow: "hidden",
+    }}>
+      <div style={{
+        position: "absolute", inset: 0,
+        background: `repeating-linear-gradient(135deg, transparent, transparent 18px, ${T.border}22 18px, ${T.border}22 19px)`,
+        pointerEvents: "none",
+      }} />
+      <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{
+          width: 36, height: 36, borderRadius: 10,
+          background: T.card, color: T.muted,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          flexShrink: 0, border: `1px solid ${T.border}`,
+        }}>
+          <LockIcon size={16} color={T.muted} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 14, letterSpacing: 1.5, color: T.muted, marginBottom: 2 }}>
+            {dayLabel.toUpperCase()}
+          </div>
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.4 }}>
+            Your coach will reveal this session on the day. Focus on what&apos;s in front of you.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WorkoutCard({ workout, compact = false, onEdit, onDelete,
                       liftLog, onLogLift, onViewHistory }) {
   const meta = wt(workout.type);
@@ -1453,6 +1528,9 @@ function AthleteHome({ athlete, todayWorkout, todayMacros, setTab,
         </div>
       </div>
 
+      {/* BOOK A CLASS — deep-link to TeamUp */}
+      <BookClassCard />
+
       {/* LONG-TERM TRACKING — Weight & Mood */}
       <div>
         <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2,
@@ -1487,6 +1565,50 @@ function AthleteHome({ athlete, todayWorkout, todayMacros, setTab,
 }
 
 // Compact daily-habit card (steps, water, sleep, etc.)
+// Book-a-class card — opens TeamUp in a new tab for booking & payment
+function BookClassCard() {
+  const open = () => {
+    if (typeof window !== "undefined") {
+      window.open(TEAMUP_BOOKING_URL, "_blank", "noopener,noreferrer");
+    }
+  };
+  return (
+    <button onClick={open} type="button"
+      style={{
+        background: T.card, border: `1px solid ${T.pacific}55`,
+        borderLeft: `3px solid ${T.pacific}`,
+        borderRadius: 12, padding: 14, cursor: "pointer",
+        textAlign: "left", width: "100%", boxShadow: T.shadow,
+        display: "flex", alignItems: "center", gap: 12,
+        transition: "transform 0.08s ease, border-color 0.15s",
+      }}
+      onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.99)")}
+      onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+      onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+    >
+      <div style={{
+        width: 40, height: 40, borderRadius: 10,
+        background: `${T.pacific}1a`, color: T.pacific,
+        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+      }}>
+        <CalendarPlus size={20} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+          <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, letterSpacing: 1.5, color: T.text }}>
+            BOOK A CLASS
+          </span>
+          <ExternalLink size={11} color={T.muted} />
+        </div>
+        <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.4 }}>
+          See the class schedule and reserve your spot on TeamUp.
+        </div>
+      </div>
+      <ChevronRight size={16} color={T.muted} style={{ flexShrink: 0 }} />
+    </button>
+  );
+}
+
 function DailyHabitCard({ icon: Icon, label, color, value, goal, unit,
                           formatValue, formatGoal, sub, onLog, data, valueKey }) {
   const sorted = [...(data || [])].sort((a, b) => a.date.localeCompare(b.date));
@@ -1669,6 +1791,7 @@ function AthleteCalendar({ workouts, events, selectedDate, setSelectedDate,
   // 14-day strip (today + 13)
   const days = Array.from({ length: 14 }, (_, i) => dateOffset(i));
   const dayWorkout = workouts[selectedDate];
+  const dayWorkoutVisible = dayWorkout && isWorkoutVisibleToAthlete(dayWorkout, selectedDate);
   const dayEvents = (events || []).filter(e => e.date === selectedDate);
 
   return (
@@ -1684,6 +1807,7 @@ function AthleteCalendar({ workouts, events, selectedDate, setSelectedDate,
         {days.map(d => {
           const date = new Date(d);
           const wk = workouts[d];
+          const wkVisible = wk && isWorkoutVisibleToAthlete(wk, d);
           const evs = (events || []).filter(e => e.date === d);
           const isSel = d === selectedDate;
           const isToday = d === todayISO();
@@ -1706,8 +1830,11 @@ function AthleteCalendar({ workouts, events, selectedDate, setSelectedDate,
                 {date.getDate()}
               </div>
               <div style={{ display: "flex", gap: 3, height: 6 }}>
-                {wk && <div style={{ width: 5, height: 5, borderRadius: "50%",
-                  background: isSel ? T.bgDeep : wt(wk.type).color }} />}
+                {wk && <div style={{
+                  width: 5, height: 5, borderRadius: "50%",
+                  background: isSel ? T.bgDeep
+                    : wkVisible ? wt(wk.type).color : T.border,
+                }} />}
                 {evs.length > 0 && <div style={{ width: 5, height: 5, borderRadius: "50%",
                   background: isSel ? T.bgDeep : T.warn }} />}
               </div>
@@ -1727,13 +1854,15 @@ function AthleteCalendar({ workouts, events, selectedDate, setSelectedDate,
           {new Date(selectedDate).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
         </div>
 
-        {dayWorkout ? (
+        {dayWorkout && dayWorkoutVisible ? (
           <WorkoutCard
             workout={{ ...dayWorkout, _date: selectedDate }}
             liftLog={liftLog}
             onLogLift={onLogLift}
             onViewHistory={onViewHistory}
           />
+        ) : dayWorkout ? (
+          <LockedWorkoutCard workout={dayWorkout} dateKey={selectedDate} />
         ) : (
           <Card style={{ textAlign: "center", padding: 30 }}>
             <Calendar size={26} color={T.muted} style={{ marginBottom: 8 }} />
@@ -3735,6 +3864,7 @@ function WorkoutScheduler({ workouts, setWorkouts }) {
     setDraft({
       date: date || todayISO(),
       title: "", type: "strength", duration: 45, intensity: "Moderate", notes: "",
+      releaseMode: "reveal-on-day",
       exercises: [{ name: "", sets: 3, reps: "8", load: "" }],
     });
     setEditing("new");
@@ -3742,7 +3872,11 @@ function WorkoutScheduler({ workouts, setWorkouts }) {
 
   const startEdit = (date) => {
     const w = workouts[date];
-    setDraft({ ...w, date, exercises: [...w.exercises] });
+    setDraft({
+      ...w, date,
+      releaseMode: w.releaseMode || "reveal-on-day",
+      exercises: [...w.exercises],
+    });
     setEditing(date);
   };
 
@@ -3762,11 +3896,25 @@ function WorkoutScheduler({ workouts, setWorkouts }) {
         duration: parseInt(draft.duration) || 0,
         intensity: draft.intensity,
         notes: draft.notes.trim(),
+        releaseMode: draft.releaseMode || "reveal-on-day",
         exercises: draft.exercises.filter(e => e.name.trim()),
       };
       return next;
     });
     cancel();
+  };
+
+  // Quick toggle visibility without opening the editor
+  const toggleVisibility = (date) => {
+    setWorkouts(prev => {
+      const w = prev[date];
+      if (!w) return prev;
+      const current = w.releaseMode || "reveal-on-day";
+      return {
+        ...prev,
+        [date]: { ...w, releaseMode: current === "always" ? "reveal-on-day" : "always" },
+      };
+    });
   };
 
   const remove = (date) => {
@@ -3810,6 +3958,9 @@ function WorkoutScheduler({ workouts, setWorkouts }) {
             {sortedDates.map(date => {
               const w = workouts[date];
               const isPast = date < todayISO();
+              const isToday = date === todayISO();
+              const mode = w.releaseMode || "reveal-on-day";
+              const isHidden = mode === "reveal-on-day" && date > todayISO();
               return (
                 <div key={date} style={{ position: "relative" }}>
                   <div style={{
@@ -3832,7 +3983,30 @@ function WorkoutScheduler({ workouts, setWorkouts }) {
                         {new Date(date).toLocaleDateString("en-GB", { month: "short" }).toUpperCase()}
                       </div>
                     </div>
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* Visibility pill row above the workout card */}
+                      {!isPast && (
+                        <div style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                          <button onClick={() => toggleVisibility(date)} type="button"
+                            title="Click to toggle athlete visibility"
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              background: isHidden ? `${T.muted}15` : `${T.good}15`,
+                              color: isHidden ? T.muted : T.good,
+                              border: `1px solid ${isHidden ? T.muted : T.good}55`,
+                              padding: "3px 8px", borderRadius: 999,
+                              fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 1,
+                              cursor: "pointer", textTransform: "uppercase",
+                            }}>
+                            {isHidden
+                              ? <><LockIcon size={9} /> Hidden until {isToday ? "today" : new Date(date).toLocaleDateString("en-GB", { weekday: "short" })}</>
+                              : <>● Visible to athlete</>}
+                          </button>
+                          <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.muted, letterSpacing: 0.5 }}>
+                            tap to toggle
+                          </span>
+                        </div>
+                      )}
                       <WorkoutCard workout={w} compact={true}
                         onEdit={() => startEdit(date)}
                         onDelete={() => remove(date)} />
@@ -3899,6 +4073,40 @@ function WorkoutScheduler({ workouts, setWorkouts }) {
                 onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
                 placeholder="Form cues, focus points, scaling options..."
                 style={{ ...inputStyle, minHeight: 60, resize: "vertical", fontFamily: FONT_BODY }} />
+            </Field>
+
+            {/* Visibility */}
+            <Field label="Athlete visibility">
+              <div style={{
+                display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6,
+                background: T.surface, padding: 4, borderRadius: 8,
+                border: `1px solid ${T.border}`,
+              }}>
+                {[
+                  { value: "reveal-on-day", label: "Reveal on the day", desc: "Hidden until due" },
+                  { value: "always",        label: "Always visible",    desc: "Show in advance" },
+                ].map(opt => {
+                  const active = (draft.releaseMode || "reveal-on-day") === opt.value;
+                  return (
+                    <button key={opt.value} type="button"
+                      onClick={() => setDraft({ ...draft, releaseMode: opt.value })}
+                      style={{
+                        background: active ? T.pacific : "transparent",
+                        color: active ? "#fff" : T.text,
+                        border: "none", borderRadius: 6, padding: "8px 10px",
+                        cursor: "pointer", textAlign: "left",
+                      }}>
+                      <div style={{ fontFamily: FONT_DISPLAY, fontSize: 12, letterSpacing: 1.2 }}>
+                        {opt.label.toUpperCase()}
+                      </div>
+                      <div style={{ fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 0.5,
+                        color: active ? "#ffffffbb" : T.muted, marginTop: 2 }}>
+                        {opt.desc}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </Field>
 
             {/* Exercises builder */}
