@@ -89,16 +89,9 @@ const WORKOUT_TYPES = [
 ];
 const wt = (id) => WORKOUT_TYPES.find(w => w.id === id) || WORKOUT_TYPES[0];
 
-const seedAthletes = () => ([
-  { id: "a1", name: "Sarah MacLeod",  email: "sarah@example.com",  avatar: "SM",
-    targets: { calories: 1900, protein: 150, carbs: 190, fat: 60 }, weight: 68.4, lastCheckIn: 2 },
-  { id: "a2", name: "Callum Ferguson", email: "callum@example.com", avatar: "CF",
-    targets: { calories: 2700, protein: 200, carbs: 300, fat: 80 }, weight: 84.1, lastCheckIn: 5 },
-  { id: "a3", name: "Aileen Ross",    email: "aileen@example.com", avatar: "AR",
-    targets: { calories: 1750, protein: 140, carbs: 170, fat: 55 }, weight: 61.2, lastCheckIn: 1 },
-  { id: "a4", name: "Iain Brodie",    email: "iain@example.com",   avatar: "IB",
-    targets: { calories: 2400, protein: 180, carbs: 260, fat: 75 }, weight: 78.9, lastCheckIn: 8 },
-]);
+// Note: the seed* functions below are no longer auto-loaded into the app
+// (App root fetches from the API instead). They're kept for reference and
+// for any future stub-mode development, but App() never calls them.
 
 // Workouts keyed by athleteId, then by date string
 const seedWorkouts = () => ({
@@ -3327,11 +3320,23 @@ function CoachApp({ athletes, workoutsByAthlete, eventsByAthlete, messagesByAthl
                     weightLogByAthlete, moodLogByAthlete,
                     stepsLogByAthlete, waterLogByAthlete, sleepLogByAthlete,
                     liftLogByAthlete,
-                    setWorkoutsByAthlete, setEventsByAthlete, setMessagesByAthlete }) {
+                    setWorkoutsByAthlete, setEventsByAthlete, setMessagesByAthlete,
+                    _extras, _detailWrapper }) {
   const [selectedId, setSelectedId] = useState(null);
 
   if (selectedId) {
     const athlete = athletes.find(a => a.id === selectedId);
+    if (!athlete) {
+      // Athlete vanished from the list (e.g. after a delete) — bounce back
+      setSelectedId(null);
+      return null;
+    }
+    // Live mode: use the wrapper that fetches everything fresh per athlete
+    if (_detailWrapper) {
+      const Wrapper = _detailWrapper;
+      return <Wrapper athlete={athlete} onBack={() => setSelectedId(null)} />;
+    }
+    // Stub mode (or pre-loaded data path): use the local maps
     return <CoachAthleteDetail
       athlete={athlete}
       onBack={() => setSelectedId(null)}
@@ -3356,11 +3361,27 @@ function CoachApp({ athletes, workoutsByAthlete, eventsByAthlete, messagesByAthl
       <div style={{ position: "relative", zIndex: 1 }}>
       <CoachTopBar />
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px 60px" }}>
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2, color: T.pacific }}>COACH DASHBOARD</div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontSize: 36, letterSpacing: 2.5, marginTop: 4 }}>
-            YOUR ATHLETES
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 2, color: T.pacific }}>COACH DASHBOARD</div>
+            <div style={{ fontFamily: FONT_DISPLAY, fontSize: 36, letterSpacing: 2.5, marginTop: 4 }}>
+              YOUR ATHLETES
+            </div>
           </div>
+          {_extras && (
+            <div style={{ display: "flex", gap: 8 }}>
+              {_extras.onAdminPanel && (
+                <Btn variant="ghost" icon={Users} onClick={_extras.onAdminPanel}>
+                  Manage Coaches
+                </Btn>
+              )}
+              {_extras.onAddAthlete && (
+                <Btn icon={Plus} onClick={_extras.onAddAthlete}>
+                  Add Athlete
+                </Btn>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Stat row */}
@@ -4440,122 +4461,840 @@ function CoachMessaging({ athlete, messages, setMessages }) {
 // ────────────────────────────────────────────────────────────────────
 // ROOT — role toggle + state
 // ────────────────────────────────────────────────────────────────────
-export default function App() {
-  const [role, setRole] = useState("athlete"); // 'athlete' | 'coach'
-  const [athletes] = useState(seedAthletes());
-  const [workoutsByAthlete, setWorkoutsByAthlete] = useState(seedWorkouts());
-  const [eventsByAthlete, setEventsByAthlete]     = useState(seedEvents());
-  const [messagesByAthlete, setMessagesByAthlete] = useState(seedMessages());
-  const [foodLogByAthlete, setFoodLogByAthlete]   = useState(seedFoodLog());
-  const [weightLogByAthlete, setWeightLogByAthlete] = useState(seedWeightLog());
-  const [moodLogByAthlete, setMoodLogByAthlete]     = useState(seedMoodLog());
-  const [stepsLogByAthlete, setStepsLogByAthlete]   = useState(seedStepsLog());
-  const [waterLogByAthlete, setWaterLogByAthlete]   = useState(seedWaterLog());
-  const [sleepLogByAthlete, setSleepLogByAthlete]   = useState(seedSleepLog());
-  const [liftLogByAthlete, setLiftLogByAthlete]     = useState(seedLiftLog());
+// ────────────────────────────────────────────────────────────────────
+// LIVE WRAPPERS — fetch from API, then pass to the existing UI components
+// ────────────────────────────────────────────────────────────────────
 
-  // For the athlete demo, always show the first athlete
-  const currentAthlete = athletes[0];
-  const currentWorkouts = workoutsByAthlete[currentAthlete.id] || {};
-  const currentEvents   = eventsByAthlete[currentAthlete.id]   || [];
-  const currentMessages = messagesByAthlete[currentAthlete.id] || [];
-  const currentFoodLog  = foodLogByAthlete[currentAthlete.id]  || [];
-  const currentWeightLog = weightLogByAthlete[currentAthlete.id] || [];
-  const currentMoodLog   = moodLogByAthlete[currentAthlete.id]   || [];
-  const currentStepsLog  = stepsLogByAthlete[currentAthlete.id]  || [];
-  const currentWaterLog  = waterLogByAthlete[currentAthlete.id]  || [];
-  const currentSleepLog  = sleepLogByAthlete[currentAthlete.id]  || [];
-  const currentLiftLog   = liftLogByAthlete[currentAthlete.id]   || {};
+// Generic hook for fetch-once-on-mount with loading + error
+function useApiData(fetcher, deps = []) {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+  const [reloadTick, setReloadTick] = useState(0);
+  const reload = () => setReloadTick(t => t + 1);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError(null);
+    fetcher()
+      .then(d => { if (!cancelled) setData(d); })
+      .catch(e => { if (!cancelled) setError(e); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [...deps, reloadTick]);
+  return { data, loading, error, reload, setData };
+}
 
-  const sendAthleteMessage = (text) => {
-    setMessagesByAthlete(prev => ({
-      ...prev,
-      [currentAthlete.id]: [
-        ...(prev[currentAthlete.id] || []),
-        { id: Date.now(), from: "athlete", text, time: "just now" },
-      ],
-    }));
+// Coach view — fetches athletes, then delegates to existing CoachApp
+function CoachAppLive({ user }) {
+  const [showAddAthlete, setShowAddAthlete] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [tempPasswordInfo, setTempPasswordInfo] = useState(null); // { name, email, password }
+
+  const { data: athletes, loading, error, reload } = useApiData(
+    () => api.listAthletes(), []
+  );
+
+  const onAthleteCreated = (created) => {
+    // Show the temp password to the coach so they can hand it to the athlete
+    setTempPasswordInfo(created);
+    reload();
   };
 
-  const addFood = (entry) => {
-    setFoodLogByAthlete(prev => ({
-      ...prev,
-      [currentAthlete.id]: [...(prev[currentAthlete.id] || []), entry],
-    }));
-  };
-
-  // Replace-by-date is consistent for all daily measurements
-  const replaceByDate = (setter) => (entry) => {
-    setter(prev => {
-      const existing = (prev[currentAthlete.id] || []).filter(x => x.date !== entry.date);
-      return { ...prev, [currentAthlete.id]: [...existing, entry] };
-    });
-  };
-
-  const addWeight = replaceByDate(setWeightLogByAthlete);
-  const addMood   = replaceByDate(setMoodLogByAthlete);
-  const addSteps  = replaceByDate(setStepsLogByAthlete);
-  const addSleep  = replaceByDate(setSleepLogByAthlete);
-  const addWater  = replaceByDate(setWaterLogByAthlete);
-
-  // Lift logging — keyed by exercise name, replaces same-date entry
-  const addLift = (exerciseName, entry) => {
-    setLiftLogByAthlete(prev => {
-      const athleteLifts = prev[currentAthlete.id] || {};
-      const exerciseHistory = (athleteLifts[exerciseName] || []).filter(s => s.date !== entry.date);
-      return {
-        ...prev,
-        [currentAthlete.id]: {
-          ...athleteLifts,
-          [exerciseName]: [...exerciseHistory, entry].sort((a, b) => a.date.localeCompare(b.date)),
-        },
-      };
-    });
-  };
+  if (loading) return <SplashScreen />;
+  if (error) {
+    return <ErrorPanel error={error} onRetry={reload} />;
+  }
 
   return (
     <>
-      <DemoBanner role={role} setRole={setRole} />
-      {role === "athlete" ? (
-        <AthleteApp
-          athlete={currentAthlete}
-          workouts={currentWorkouts}
-          events={currentEvents}
-          messages={currentMessages}
-          foodLog={currentFoodLog}
-          weightLog={currentWeightLog}
-          moodLog={currentMoodLog}
-          stepsLog={currentStepsLog}
-          waterLog={currentWaterLog}
-          sleepLog={currentSleepLog}
-          liftLog={currentLiftLog}
-          onAddFood={addFood}
-          onAddWeight={addWeight}
-          onAddMood={addMood}
-          onAddSteps={addSteps}
-          onAddWater={addWater}
-          onAddSleep={addSleep}
-          onLogLift={addLift}
-          onSendMessage={sendAthleteMessage}
-        />
-      ) : (
-        <CoachApp
-          athletes={athletes}
-          workoutsByAthlete={workoutsByAthlete}
-          eventsByAthlete={eventsByAthlete}
-          messagesByAthlete={messagesByAthlete}
-          weightLogByAthlete={weightLogByAthlete}
-          moodLogByAthlete={moodLogByAthlete}
-          stepsLogByAthlete={stepsLogByAthlete}
-          waterLogByAthlete={waterLogByAthlete}
-          sleepLogByAthlete={sleepLogByAthlete}
-          liftLogByAthlete={liftLogByAthlete}
-          setWorkoutsByAthlete={setWorkoutsByAthlete}
-          setEventsByAthlete={setEventsByAthlete}
-          setMessagesByAthlete={setMessagesByAthlete}
+      <CoachAppShell
+        user={user}
+        athletes={athletes || []}
+        onAddAthlete={() => setShowAddAthlete(true)}
+        onAdminPanel={user.role === "admin" ? () => setShowAdminPanel(true) : null}
+        reloadAthletes={reload}
+      />
+
+      {showAddAthlete && (
+        <AddAthleteModal
+          onCancel={() => setShowAddAthlete(false)}
+          onCreated={(created) => {
+            setShowAddAthlete(false);
+            onAthleteCreated(created);
+          }}
         />
       )}
+
+      {showAdminPanel && user.role === "admin" && (
+        <AdminCoachPanel onClose={() => setShowAdminPanel(false)} />
+      )}
+
+      {tempPasswordInfo && (
+        <Modal onClose={() => setTempPasswordInfo(null)} title="Athlete Created" maxWidth={460}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{
+              background: `${T.good}15`, border: `1px solid ${T.good}55`,
+              padding: 12, borderRadius: 10, display: "flex", gap: 10, alignItems: "flex-start",
+            }}>
+              <CheckCircle2 size={18} color={T.good} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div style={{ fontSize: 13, color: T.textSoft, lineHeight: 1.5 }}>
+                <strong style={{ color: T.text }}>{tempPasswordInfo.name}</strong> can now sign in.
+                Share these credentials with them — they should change the password after first login.
+              </div>
+            </div>
+            <Field label="Email">
+              <div style={{ fontFamily: FONT_MONO, fontSize: 13, padding: "10px 12px",
+                background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                {tempPasswordInfo.email}
+              </div>
+            </Field>
+            <Field label="Temporary password">
+              <div style={{ fontFamily: FONT_MONO, fontSize: 16, padding: "10px 12px",
+                background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+                letterSpacing: 1, color: T.pacific }}>
+                {tempPasswordInfo.password}
+              </div>
+            </Field>
+            <Btn onClick={() => setTempPasswordInfo(null)}
+                 style={{ width: "100%", justifyContent: "center" }}>
+              Done
+            </Btn>
+          </div>
+        </Modal>
+      )}
     </>
+  );
+}
+
+// Renders the CoachApp for the live data, with extra "Add Athlete" + admin buttons
+function CoachAppShell({ user, athletes, onAddAthlete, onAdminPanel, reloadAthletes }) {
+  // Each athlete's per-feature data is loaded on demand when clicked,
+  // so the dashboard list itself stays fast. We pass through empty maps
+  // and fetch within CoachAthleteDetailLive.
+  const empty = {};
+  const emptyArr = {};
+
+  return (
+    <CoachAppWithExtras
+      user={user}
+      athletes={athletes}
+      workoutsByAthlete={empty}
+      eventsByAthlete={emptyArr}
+      messagesByAthlete={emptyArr}
+      weightLogByAthlete={emptyArr}
+      moodLogByAthlete={emptyArr}
+      stepsLogByAthlete={emptyArr}
+      waterLogByAthlete={emptyArr}
+      sleepLogByAthlete={emptyArr}
+      liftLogByAthlete={empty}
+      onAddAthlete={onAddAthlete}
+      onAdminPanel={onAdminPanel}
+      reloadAthletes={reloadAthletes}
+    />
+  );
+}
+
+// Wraps CoachApp with the "Add Athlete" button in the dashboard header.
+// Uses a ref to inject the button rather than modifying CoachApp's signature.
+function CoachAppWithExtras({ onAddAthlete, onAdminPanel, reloadAthletes, athletes, ...rest }) {
+  return (
+    <CoachApp
+      {...rest}
+      athletes={athletes}
+      _extras={{ onAddAthlete, onAdminPanel }}
+      _detailWrapper={CoachAthleteDetailLive}
+    />
+  );
+}
+
+// Live wrapper around CoachAthleteDetail — fetches all data for one athlete
+function CoachAthleteDetailLive({ athlete, onBack }) {
+  const aid = athlete.id;
+  const workouts  = useApiData(() => api.listWorkouts(aid), [aid]);
+  const events    = useApiData(() => api.listEvents(aid),   [aid]);
+  const messages  = useApiData(() => api.listMessages(aid), [aid]);
+  const lifts     = useApiData(() => api.listLiftLog(aid),  [aid]);
+  const weight    = useApiData(() => api.listTracking(aid, "weight"), [aid]);
+  const mood      = useApiData(() => api.listTracking(aid, "mood"),   [aid]);
+  const steps     = useApiData(() => api.listTracking(aid, "steps"),  [aid]);
+  const water     = useApiData(() => api.listTracking(aid, "water"),  [aid]);
+  const sleep     = useApiData(() => api.listTracking(aid, "sleep"),  [aid]);
+
+  const allLoading = workouts.loading || events.loading || messages.loading || lifts.loading
+    || weight.loading || mood.loading || steps.loading || water.loading || sleep.loading;
+
+  if (allLoading) return <SplashScreen />;
+
+  // Convert workouts list back into the date-keyed shape the existing UI expects
+  const workoutsByDate = (workouts.data || []).reduce((acc, w) => { acc[w.date] = w; return acc; }, {});
+
+  const setWorkouts = async (updater) => {
+    const next = typeof updater === "function" ? updater(workoutsByDate) : updater;
+    // Diff: anything in next that isn't in workoutsByDate (or differs) → upsert
+    // anything in workoutsByDate not in next → delete
+    const oldDates = Object.keys(workoutsByDate);
+    const newDates = Object.keys(next);
+    for (const d of oldDates) {
+      if (!newDates.includes(d)) {
+        await api.deleteWorkout(aid, d).catch(() => {});
+      }
+    }
+    for (const d of newDates) {
+      const w = next[d];
+      const old = workoutsByDate[d];
+      if (!old || JSON.stringify(old) !== JSON.stringify(w)) {
+        await api.upsertWorkout(aid, { ...w, date: d });
+      }
+    }
+    workouts.reload();
+  };
+
+  const setEvents = async (updater) => {
+    const next = typeof updater === "function" ? updater(events.data || []) : updater;
+    const oldIds = (events.data || []).map(e => e.id);
+    const nextIds = next.map(e => e.id);
+    for (const id of oldIds) {
+      if (!nextIds.includes(id)) await api.deleteEvent(aid, id).catch(() => {});
+    }
+    for (const e of next) {
+      if (!oldIds.includes(e.id)) await api.createEvent(aid, e);
+    }
+    events.reload();
+  };
+
+  const setMessages = async (updater) => {
+    const next = typeof updater === "function" ? updater(messages.data || []) : updater;
+    const newOnes = next.filter(m => !(messages.data || []).find(o => o.id === m.id));
+    for (const m of newOnes) {
+      if (m.from === "coach") await api.sendMessage(aid, m.text);
+    }
+    messages.reload();
+  };
+
+  return (
+    <CoachAthleteDetail
+      athlete={athlete}
+      onBack={onBack}
+      workouts={workoutsByDate}
+      events={events.data || []}
+      messages={messages.data || []}
+      weightLog={weight.data || []}
+      moodLog={mood.data || []}
+      stepsLog={steps.data || []}
+      waterLog={water.data || []}
+      sleepLog={sleep.data || []}
+      liftLog={lifts.data || {}}
+      setWorkouts={setWorkouts}
+      setEvents={setEvents}
+      setMessages={setMessages}
+    />
+  );
+}
+
+// Athlete view — fetches their own data
+function AthleteAppLive({ user }) {
+  const aid = user.id;
+  const workouts  = useApiData(() => api.listWorkouts(aid), [aid]);
+  const events    = useApiData(() => api.listEvents(aid),   [aid]);
+  const messages  = useApiData(() => api.listMessages("coach"), [aid]); // their coach
+  const food      = useApiData(() => api.listFoodLog(aid, todayISO()),  [aid]);
+  const lifts     = useApiData(() => api.listLiftLog(aid),  [aid]);
+  const weight    = useApiData(() => api.listTracking(aid, "weight"), [aid]);
+  const mood      = useApiData(() => api.listTracking(aid, "mood"),   [aid]);
+  const steps     = useApiData(() => api.listTracking(aid, "steps"),  [aid]);
+  const water     = useApiData(() => api.listTracking(aid, "water"),  [aid]);
+  const sleep     = useApiData(() => api.listTracking(aid, "sleep"),  [aid]);
+
+  const allLoading = workouts.loading || events.loading || messages.loading || food.loading
+    || lifts.loading || weight.loading || mood.loading || steps.loading || water.loading || sleep.loading;
+
+  if (allLoading) return <SplashScreen />;
+
+  const workoutsByDate = (workouts.data || []).reduce((acc, w) => { acc[w.date] = w; return acc; }, {});
+
+  const onAddFood = async (entry) => {
+    await api.logFood(aid, entry).catch(() => {});
+    food.reload();
+  };
+  const trackingHandler = (kind, reloadFn) => async (entry) => {
+    await api.logTracking(aid, kind, entry).catch(() => {});
+    reloadFn();
+  };
+  const onLogLift = async (exerciseName, entry) => {
+    await api.logLift(aid, exerciseName, entry).catch(() => {});
+    lifts.reload();
+  };
+  const onSendMessage = async (text) => {
+    await api.sendMessage("coach", text).catch(() => {});
+    messages.reload();
+  };
+
+  // The athlete's own profile from `user` — augment with sensible defaults
+  const athleteProfile = {
+    id: user.id,
+    name: user.name || user.email,
+    email: user.email,
+    avatar: (user.name || user.email || "?").split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase(),
+    targets: user.targets || { calories: 2000, protein: 150, carbs: 200, fat: 65 },
+    weight: weight.data && weight.data.length
+      ? weight.data[weight.data.length - 1].weight
+      : (user.weight || 0),
+    lastCheckIn: user.lastCheckIn || 0,
+  };
+
+  return (
+    <AthleteApp
+      athlete={athleteProfile}
+      workouts={workoutsByDate}
+      events={events.data || []}
+      messages={messages.data || []}
+      foodLog={food.data || []}
+      weightLog={weight.data || []}
+      moodLog={mood.data || []}
+      stepsLog={steps.data || []}
+      waterLog={water.data || []}
+      sleepLog={sleep.data || []}
+      liftLog={lifts.data || {}}
+      onAddFood={onAddFood}
+      onAddWeight={trackingHandler("weight", weight.reload)}
+      onAddMood={trackingHandler("mood",     mood.reload)}
+      onAddSteps={trackingHandler("steps",   steps.reload)}
+      onAddWater={trackingHandler("water",   water.reload)}
+      onAddSleep={trackingHandler("sleep",   sleep.reload)}
+      onLogLift={onLogLift}
+      onSendMessage={onSendMessage}
+    />
+  );
+}
+
+function ErrorPanel({ error, onRetry }) {
+  return (
+    <div style={{
+      minHeight: "100vh", background: T.bg, color: T.text,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20, fontFamily: FONT_BODY,
+    }}>
+      <Card style={{ maxWidth: 440, textAlign: "center" }}>
+        <div style={{ fontFamily: FONT_DISPLAY, fontSize: 18, letterSpacing: 1.5,
+          color: T.danger, marginBottom: 8 }}>SOMETHING WENT WRONG</div>
+        <div style={{ fontSize: 13, color: T.textSoft, lineHeight: 1.5, marginBottom: 16 }}>
+          {error?.message || "Could not load data."}
+        </div>
+        <Btn onClick={onRetry} icon={RefreshCw}
+          style={{ width: "100%", justifyContent: "center" }}>
+          Try Again
+        </Btn>
+      </Card>
+    </div>
+  );
+}
+
+// ── Add Athlete modal — coach creates a new client account ──────────
+function AddAthleteModal({ onCancel, onCreated }) {
+  const [email, setEmail] = useState("");
+  const [name,  setName]  = useState("");
+  const [password, setPassword] = useState(generateTempPassword());
+  const [calories, setCalories] = useState(2000);
+  const [protein, setProtein]   = useState(150);
+  const [carbs, setCarbs]       = useState(200);
+  const [fat, setFat]           = useState(65);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async () => {
+    if (!email.trim() || !name.trim() || !password) return;
+    setSubmitting(true); setError(null);
+    try {
+      const res = await api.createAthlete({
+        email: email.trim().toLowerCase(),
+        name: name.trim(),
+        password,
+        targets: { calories: Number(calories), protein: Number(protein), carbs: Number(carbs), fat: Number(fat) },
+      });
+      // Pass the chosen password back so the coach can show it to the athlete
+      onCreated({ name: name.trim(), email: email.trim().toLowerCase(), password, ...res });
+    } catch (e) {
+      setError(e.message || "Could not create athlete.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onCancel} title="Add Athlete" maxWidth={500}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Field label="Full name">
+          <Input value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Sarah MacLeod" autoFocus />
+        </Field>
+        <Field label="Email">
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+            placeholder="sarah@example.com" />
+        </Field>
+        <Field label="Temporary password">
+          <div style={{ display: "flex", gap: 6 }}>
+            <Input value={password} onChange={(e) => setPassword(e.target.value)}
+              style={{ fontFamily: FONT_MONO }} />
+            <Btn variant="quiet" icon={RefreshCw}
+              onClick={() => setPassword(generateTempPassword())}>
+              New
+            </Btn>
+          </div>
+          <div style={{ fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 0.5,
+            color: T.muted, marginTop: 4 }}>
+            You&apos;ll see this again after creation, then share it with the athlete.
+          </div>
+        </Field>
+
+        <div style={{ marginTop: 4 }}>
+          <div style={{ fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 1.5,
+            color: T.muted, textTransform: "uppercase", marginBottom: 8 }}>
+            Starting macro targets
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+            <Field label="kcal">
+              <Input type="number" value={calories}
+                onChange={(e) => setCalories(e.target.value)} />
+            </Field>
+            <Field label="P (g)">
+              <Input type="number" value={protein}
+                onChange={(e) => setProtein(e.target.value)} />
+            </Field>
+            <Field label="C (g)">
+              <Input type="number" value={carbs}
+                onChange={(e) => setCarbs(e.target.value)} />
+            </Field>
+            <Field label="F (g)">
+              <Input type="number" value={fat}
+                onChange={(e) => setFat(e.target.value)} />
+            </Field>
+          </div>
+        </div>
+
+        {error && (
+          <div style={{
+            background: `${T.danger}10`, border: `1px solid ${T.danger}55`,
+            color: T.danger, padding: "8px 12px", borderRadius: 8, fontSize: 12,
+          }}>{error}</div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+          <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
+          <Btn icon={Save} onClick={submit}
+               disabled={submitting || !email.trim() || !name.trim() || !password}>
+            {submitting ? "Creating…" : "Create Athlete"}
+          </Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Generate a friendly-looking temp password — readable but reasonably random
+function generateTempPassword() {
+  const adj = ["Quick","Bright","Strong","Bold","Calm","Wild","Swift","Rapid","Steady","Sharp"];
+  const noun = ["Wave","Tide","Reef","Storm","Shore","Coast","Sun","Fire","Stone","River"];
+  const n = String(Math.floor(Math.random() * 90) + 10);
+  return `${adj[Math.floor(Math.random() * adj.length)]}${noun[Math.floor(Math.random() * noun.length)]}${n}!`;
+}
+
+// ── Admin Coach Panel — list/invite/promote coaches ─────────────────
+function AdminCoachPanel({ onClose }) {
+  const { data: coaches, loading, error, reload } = useApiData(() => api.listCoaches(), []);
+  const [showInvite, setShowInvite] = useState(false);
+  const [tempInfo, setTempInfo] = useState(null);
+
+  const togglePromote = async (coach) => {
+    const promote = !coach.is_admin;
+    const ok = confirm(promote
+      ? `Grant admin privileges to ${coach.name || coach.email}?`
+      : `Remove admin privileges from ${coach.name || coach.email}?`);
+    if (!ok) return;
+    try {
+      await api.setCoachAdmin(coach.id, promote);
+      reload();
+    } catch (e) {
+      alert(e.message || "Could not update.");
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} title="Manage Coaches" maxWidth={620}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <span style={{ fontSize: 12, color: T.muted }}>
+          {loading ? "Loading…" : `${coaches?.length || 0} ${coaches?.length === 1 ? "coach" : "coaches"}`}
+        </span>
+        <Btn icon={Plus} onClick={() => setShowInvite(true)}>Invite Coach</Btn>
+      </div>
+
+      {error && (
+        <div style={{ color: T.danger, fontSize: 12, marginBottom: 10 }}>
+          {error.message}
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
+        {(coaches || []).map(c => (
+          <div key={c.id} style={{
+            background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10,
+            padding: 12, display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <Avatar
+              initials={(c.name || c.email).split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase()}
+              color={c.is_admin ? T.warn : T.pacific}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>
+                {c.name || c.email}
+              </div>
+              <div style={{ fontSize: 11, color: T.muted, overflow: "hidden",
+                textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {c.email}
+              </div>
+            </div>
+            {c.is_admin && <Pill color={T.warn}>ADMIN</Pill>}
+            <button onClick={() => togglePromote(c)} type="button"
+              style={{
+                background: "none", border: `1px solid ${T.border}`,
+                borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+                fontFamily: FONT_MONO, fontSize: 10, letterSpacing: 1, color: T.text,
+              }}>
+              {c.is_admin ? "REMOVE ADMIN" : "MAKE ADMIN"}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {showInvite && (
+        <InviteCoachModal
+          onCancel={() => setShowInvite(false)}
+          onCreated={(info) => { setShowInvite(false); setTempInfo(info); reload(); }}
+        />
+      )}
+
+      {tempInfo && (
+        <Modal onClose={() => setTempInfo(null)} title="Coach Created" maxWidth={460}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{
+              background: `${T.good}15`, border: `1px solid ${T.good}55`,
+              padding: 12, borderRadius: 10,
+            }}>
+              <div style={{ fontSize: 13, color: T.textSoft, lineHeight: 1.5 }}>
+                Share these credentials with <strong>{tempInfo.name}</strong>.
+                They can sign in immediately.
+              </div>
+            </div>
+            <Field label="Email">
+              <div style={{ fontFamily: FONT_MONO, fontSize: 13, padding: "10px 12px",
+                background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                {tempInfo.email}
+              </div>
+            </Field>
+            <Field label="Temporary password">
+              <div style={{ fontFamily: FONT_MONO, fontSize: 16, padding: "10px 12px",
+                background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8,
+                color: T.pacific }}>
+                {tempInfo.password}
+              </div>
+            </Field>
+            <Btn onClick={() => setTempInfo(null)}
+                 style={{ width: "100%", justifyContent: "center" }}>Done</Btn>
+          </div>
+        </Modal>
+      )}
+    </Modal>
+  );
+}
+
+function InviteCoachModal({ onCancel, onCreated }) {
+  const [email, setEmail] = useState("");
+  const [name,  setName]  = useState("");
+  const [password, setPassword] = useState(generateTempPassword());
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async () => {
+    if (!email.trim() || !name.trim() || !password) return;
+    setSubmitting(true); setError(null);
+    try {
+      const r = await api.createCoach({
+        email: email.trim().toLowerCase(),
+        name: name.trim(),
+        password,
+        isAdmin,
+      });
+      onCreated({ name: name.trim(), email: email.trim().toLowerCase(), password, ...r });
+    } catch (e) {
+      setError(e.message || "Could not create coach.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onCancel} title="Invite Coach" maxWidth={460}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Field label="Full name">
+          <Input value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Stuart McKay" autoFocus />
+        </Field>
+        <Field label="Email">
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+            placeholder="coach@example.com" />
+        </Field>
+        <Field label="Temporary password">
+          <div style={{ display: "flex", gap: 6 }}>
+            <Input value={password} onChange={(e) => setPassword(e.target.value)}
+              style={{ fontFamily: FONT_MONO }} />
+            <Btn variant="quiet" icon={RefreshCw}
+              onClick={() => setPassword(generateTempPassword())}>New</Btn>
+          </div>
+        </Field>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={isAdmin}
+            onChange={(e) => setIsAdmin(e.target.checked)} />
+          <span style={{ fontSize: 13, color: T.textSoft }}>Grant admin privileges</span>
+        </label>
+        {error && (
+          <div style={{ color: T.danger, fontSize: 12 }}>{error}</div>
+        )}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+          <Btn variant="ghost" onClick={onCancel}>Cancel</Btn>
+          <Btn icon={Save} onClick={submit}
+               disabled={submitting || !email.trim() || !name.trim() || !password}>
+            {submitting ? "Creating…" : "Create Coach"}
+          </Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// ROOT — auth-aware, fetches data from backend
+// ─────────────────────────────────────────────────────────────────────
+export default function App() {
+  // Auth state
+  const [user, setUser] = useState(null);   // { id, name, email, role: 'admin' | 'coach' | 'athlete' }
+  const [authChecking, setAuthChecking] = useState(true);
+  const [loginError, setLoginError] = useState(null);
+
+  // On mount, check if a session exists (token in storage from previous visit)
+  useEffect(() => {
+    const token = api.getAuthToken();
+    if (!token) { setAuthChecking(false); return; }
+    api.fetchMe()
+      .then(u => setUser(u))
+      .catch(() => api.setAuthToken(null))   // bad token, drop it
+      .finally(() => setAuthChecking(false));
+  }, []);
+
+  const onLogin = async (email, password) => {
+    setLoginError(null);
+    try {
+      const u = await api.login(email, password);
+      setUser(u);
+    } catch (e) {
+      setLoginError(e.message || "Could not sign in.");
+    }
+  };
+
+  const onLogout = () => {
+    api.logout();
+    setUser(null);
+  };
+
+  // Loading state — short, just covers the /auth/me round-trip
+  if (authChecking) {
+    return <SplashScreen />;
+  }
+
+  // Not logged in → login screen
+  if (!user) {
+    return <LoginScreen onLogin={onLogin} error={loginError} />;
+  }
+
+  // Logged in → render the right view based on role
+  const isCoach = user.role === "coach" || user.role === "admin";
+
+  return (
+    <>
+      <UserBadge user={user} onLogout={onLogout} />
+      {isCoach
+        ? <CoachAppLive user={user} />
+        : <AthleteAppLive user={user} />}
+    </>
+  );
+}
+
+// Brief loading splash while we verify the existing session
+function SplashScreen() {
+  return (
+    <div style={{
+      minHeight: "100vh", background: T.bg, color: T.text,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: FONT_BODY, position: "relative",
+    }}>
+      <TribalWatermark />
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center" }}>
+        <Logo size={32} stacked />
+        <div style={{ fontFamily: FONT_MONO, fontSize: 11, letterSpacing: 1.5,
+          color: T.muted, marginTop: 18 }}>LOADING…</div>
+      </div>
+    </div>
+  );
+}
+
+// Login screen — centred, branded
+function LoginScreen({ onLogin, error }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e) => {
+    if (e) e.preventDefault();
+    if (!email.trim() || !password) return;
+    setSubmitting(true);
+    try {
+      await onLogin(email.trim().toLowerCase(), password);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: T.bg, color: T.text,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: FONT_BODY, padding: 20, position: "relative",
+    }}>
+      <TribalWatermark />
+      <div style={{
+        position: "relative", zIndex: 1,
+        background: T.card, border: `1px solid ${T.border}`, borderRadius: 16,
+        padding: 32, width: "100%", maxWidth: 420,
+        boxShadow: "0 20px 60px rgba(28,25,21,0.12)",
+      }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 }}>
+          <Logo size={28} stacked />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <Field label="Email">
+            <Input type="email" inputMode="email" autoComplete="email"
+              value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com" autoFocus
+              onKeyDown={(e) => e.key === "Enter" && submit()} />
+          </Field>
+          <Field label="Password">
+            <Input type="password" autoComplete="current-password"
+              value={password} onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              onKeyDown={(e) => e.key === "Enter" && submit()} />
+          </Field>
+
+          {error && (
+            <div style={{
+              background: `${T.danger}10`, border: `1px solid ${T.danger}55`,
+              color: T.danger, padding: "8px 12px", borderRadius: 8,
+              fontSize: 12,
+            }}>
+              {error}
+            </div>
+          )}
+
+          <Btn onClick={submit}
+               disabled={submitting || !email.trim() || !password}
+               style={{ width: "100%", justifyContent: "center", marginTop: 6 }}>
+            {submitting ? "Signing in…" : "Sign In"}
+          </Btn>
+
+          {!api.isLive() && (
+            <div style={{
+              background: `${T.warn}10`, border: `1px solid ${T.warn}55`,
+              color: T.textSoft, padding: 10, borderRadius: 8,
+              fontSize: 11, lineHeight: 1.5, marginTop: 6, textAlign: "center",
+            }}>
+              <strong style={{ color: T.warn }}>Stub mode</strong> —
+              the API URL isn&apos;t configured yet, so login won&apos;t work.
+              Set <code style={{ fontFamily: FONT_MONO }}>VITE_API_URL</code> in
+              your deploy workflow to enable live login.
+            </div>
+          )}
+        </div>
+
+        <div style={{
+          fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 1.5,
+          color: T.muted, textAlign: "center", marginTop: 24, textTransform: "uppercase",
+        }}>
+          Fitness Pacific · Kirkcaldy
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// User badge in top-right showing who's logged in + logout button
+function UserBadge({ user, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const initials = (user.name || user.email || "?")
+    .split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase();
+
+  return (
+    <div style={{
+      position: "fixed", top: 12, right: 12, zIndex: 100,
+    }}>
+      <button onClick={() => setOpen(o => !o)} type="button"
+        style={{
+          background: T.card, border: `1px solid ${T.border}`,
+          borderRadius: 999, padding: "6px 10px 6px 6px",
+          display: "flex", alignItems: "center", gap: 8,
+          cursor: "pointer", boxShadow: T.shadow,
+        }}>
+        <Avatar initials={initials} size={28}
+          color={user.role === "admin" ? T.warn : user.role === "coach" ? T.pacific : T.clay} />
+        <span style={{ fontFamily: FONT_DISPLAY, fontSize: 12, letterSpacing: 1.4, color: T.text }}>
+          {(user.name || user.email).toUpperCase()}
+        </span>
+        <ChevronRight size={12} color={T.muted}
+          style={{ transform: open ? "rotate(90deg)" : "rotate(0)", transition: "transform 0.15s" }} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: 48, right: 0,
+          background: T.card, border: `1px solid ${T.border}`,
+          borderRadius: 12, padding: 12, minWidth: 220,
+          boxShadow: "0 8px 32px rgba(28, 25, 21, 0.12)",
+        }}>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>
+              {user.name || user.email}
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+              {user.email}
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <Pill color={user.role === "admin" ? T.warn : user.role === "coach" ? T.pacific : T.clay}>
+                {user.role.toUpperCase()}
+              </Pill>
+            </div>
+          </div>
+          <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 8, paddingTop: 8 }}>
+            <button onClick={onLogout} type="button"
+              style={{
+                background: "transparent", border: "none", color: T.danger,
+                fontFamily: FONT_DISPLAY, fontSize: 12, letterSpacing: 1.3,
+                cursor: "pointer", padding: 4, width: "100%", textAlign: "left",
+              }}>
+              SIGN OUT
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
