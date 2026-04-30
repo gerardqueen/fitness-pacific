@@ -31,7 +31,16 @@ jobs:
 
       - name: Build
         env:
+          # Asset path prefix. Must match the repo name with a leading and
+          # trailing slash, OR set to "/" for a custom domain.
           VITE_BASE: /fitness-pacific/
+
+          # Backend API URL — set as a repo VARIABLE (not secret) at:
+          # Settings -> Secrets and variables -> Actions -> Variables -> New variable
+          # Variable name:  VITE_API_URL
+          # Value:          https://your-railway-app.up.railway.app
+          # If left unset, the app runs in stub mode (mock food data, no backend).
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: npm run build
 
       - name: Upload artifact

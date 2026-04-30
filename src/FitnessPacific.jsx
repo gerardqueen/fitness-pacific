@@ -5,8 +5,9 @@ import {
   Send, Bell, X, Circle, Target, Edit3, Save, RefreshCw, Activity,
   ScanLine, Frown, Meh, Smile, Laugh, Annoyed, Scale, LineChart as LineChartIcon,
   Footprints, Droplet, Moon, BookOpen, Search, Info, Star, Trophy, CheckCircle2,
-  ExternalLink, CalendarPlus
+  ExternalLink, CalendarPlus, Cloud, CloudOff
 } from "lucide-react";
+import * as api from "./api.js";
 
 // ── Embedded Fitness Pacific assets (base64-encoded PNGs) ─────────────
 // Logo with transparent background, processed from the original brand mark
@@ -1979,14 +1980,31 @@ function AthleteMacros({ targets, todayMacros, foodLog, onAddFood }) {
       {adding === "scan" && (
         <BarcodeScanner
           onClose={() => setAdding(null)}
-          onDetected={(code) => {
-            const found = FOOD_BY_BARCODE[code];
-            if (found) {
-              setAdding({ ...found, _barcode: code });
-            } else {
-              setAdding({ _barcode: code, name: "", serving: 100, servingUnit: "g",
-                          calories: 0, protein: 0, carbs: 0, fat: 0, _unknown: true });
+          onDetected={async (code) => {
+            // 1. Try the real backend (cache → Open Food Facts auto-fallback)
+            try {
+              const found = await api.lookupBarcode(code);
+              if (found) {
+                setAdding({ ...found, _barcode: code });
+                return;
+              }
+            } catch (e) {
+              // api.lookupBarcode catches its own errors and returns null on misses,
+              // so reaching here means a hard failure (offline, etc.) — fall through
+              // to the local mock and the manual form so the demo still works.
+              if (e.code !== "no_api") {
+                console.warn("Barcode lookup error:", e.message);
+              }
             }
+            // 2. Fall back to the local demo dictionary so stub mode still demos
+            const localMock = FOOD_BY_BARCODE[code];
+            if (localMock) {
+              setAdding({ ...localMock, _barcode: code });
+              return;
+            }
+            // 3. Truly unknown — drop the user into manual entry
+            setAdding({ _barcode: code, name: "", serving: 100, servingUnit: "g",
+                        calories: 0, protein: 0, carbs: 0, fat: 0, _unknown: true });
           }}
         />
       )}
@@ -2189,11 +2207,36 @@ function Modal({ children, onClose, title, maxWidth = 480 }) {
 // ── Food picker — quick foods + scan / manual links ────────────────────
 function FoodPickerModal({ onClose, onPick, onManual, onScan }) {
   const [q, setQ] = useState("");
-  const filtered = QUICK_FOODS.filter(f => f.name.toLowerCase().includes(q.toLowerCase()));
+  const [results, setResults] = useState([]);    // live results from backend
+  const [searching, setSearching] = useState(false);
+  const live = api.isLive();
+
+  // Debounced live search — runs 300ms after the user stops typing
+  useEffect(() => {
+    if (!live) return;                       // stub mode: no live search
+    if (q.trim().length < 2) { setResults([]); return; }
+    let cancelled = false;
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await api.searchFoods(q);
+        if (!cancelled) setResults(rows);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [q, live]);
+
+  // What to show — live results when available, otherwise the static quick list
+  const stubFiltered = QUICK_FOODS.filter(f => f.name.toLowerCase().includes(q.toLowerCase()));
+  const items = live ? results : stubFiltered;
+  const showHint = live && q.trim().length < 2;
+
   return (
     <Modal onClose={onClose} title="Add Food">
       <Input value={q} onChange={(e) => setQ(e.target.value)}
-        placeholder="Search common foods..." />
+        placeholder={live ? "Search the food database..." : "Search common foods..."} />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
         <Btn variant="quiet" icon={ScanLine} onClick={onScan}>Scan barcode</Btn>
@@ -2201,32 +2244,51 @@ function FoodPickerModal({ onClose, onPick, onManual, onScan }) {
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <div style={{ fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 1.5,
-          color: T.muted, textTransform: "uppercase", marginBottom: 8 }}>Common foods</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 1.5,
+            color: T.muted, textTransform: "uppercase" }}>
+            {live ? (q.trim().length >= 2 ? `Results (${items.length})` : "Type to search") : "Common foods"}
+          </span>
+          {searching && (
+            <span style={{ fontFamily: FONT_MONO, fontSize: 9, color: T.muted }}>
+              Searching…
+            </span>
+          )}
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
-          {filtered.map((f, i) => (
-            <button key={i} onClick={() => onPick(f)} type="button"
+          {showHint ? (
+            <div style={{ color: T.muted, fontSize: 12, padding: 14, textAlign: "center" }}>
+              Start typing to search the shared food database.
+            </div>
+          ) : items.length === 0 && q.trim().length >= 2 && !searching ? (
+            <div style={{ color: T.muted, fontSize: 12, padding: 14, textAlign: "center" }}>
+              No matches. Try manual entry or scan a barcode.
+            </div>
+          ) : items.length === 0 && !live ? (
+            <div style={{ color: T.muted, fontSize: 12, padding: 14, textAlign: "center" }}>
+              No matches. Try manual entry or scan a barcode.
+            </div>
+          ) : items.map((f, i) => (
+            <button key={f.id ?? `q-${i}`} onClick={() => onPick(f)} type="button"
               style={{
                 background: T.surface, border: `1px solid ${T.border}`,
                 borderRadius: 8, padding: "10px 12px", cursor: "pointer",
                 textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center",
               }}>
-              <div>
-                <div style={{ fontSize: 13, color: T.text }}>{f.name}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: T.text }}>
+                  {f.name}
+                  {f.brand && <span style={{ color: T.muted, fontWeight: 400 }}> · {f.brand}</span>}
+                </div>
                 <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: T.muted, marginTop: 2 }}>
                   {f.serving}{f.servingUnit} · P{f.protein}g C{f.carbs}g F{f.fat}g
                 </div>
               </div>
-              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: T.calories }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 16, color: T.calories, flexShrink: 0, marginLeft: 10 }}>
                 {f.calories}<span style={{ fontSize: 9, color: T.muted }}>kcal</span>
               </div>
             </button>
           ))}
-          {filtered.length === 0 && (
-            <div style={{ color: T.muted, fontSize: 12, padding: 14, textAlign: "center" }}>
-              No matches. Try manual entry or scan a barcode.
-            </div>
-          )}
         </div>
       </div>
     </Modal>
@@ -2254,15 +2316,40 @@ function AddFoodModal({ food, onCancel, onSave }) {
 
   const save = () => {
     if (!name.trim()) return;
+    const cals = isManual ? Number(manC) : scaled.calories;
+    const prot = isManual ? Number(manP) : scaled.protein;
+    const carb = isManual ? Number(manB) : scaled.carbs;
+    const fat  = isManual ? Number(manF) : scaled.fat;
+
+    // Add to today's log immediately (works in both stub and live mode)
     onSave({
       id: `f-${Date.now()}`,
       name: name.trim(),
       meal,
-      calories: isManual ? Number(manC) : scaled.calories,
-      protein:  isManual ? Number(manP) : scaled.protein,
-      carbs:    isManual ? Number(manB) : scaled.carbs,
-      fat:      isManual ? Number(manF) : scaled.fat,
+      calories: cals,
+      protein:  prot,
+      carbs:    carb,
+      fat:      fat,
     });
+
+    // If this was a manual / unknown-barcode entry, push it to the shared
+    // backend so the next user benefits. We don't await this — it's a
+    // best-effort write-through cache, and it shouldn't block the UI.
+    // Foods that came from the backend (food.id present) are already there.
+    if (food._unknown || (!food.id && isManual && food._barcode)) {
+      api.addFood({
+        barcode: food._barcode || null,
+        name: name.trim(),
+        brand: null,
+        calories: cals,
+        protein:  prot,
+        carbs:    carb,
+        fat:      fat,
+        fibre: 0,
+        serving: 100,
+        servingUnit: "g",
+      }).catch(() => { /* best-effort, ignore failures */ });
+    }
   };
 
   return (
@@ -4498,8 +4585,24 @@ function DemoBanner({ role, setRole }) {
       {open && (
         <>
           <div style={{ color: T.muted, fontSize: 11, lineHeight: 1.5, marginTop: 8 }}>
-            UI preview only. Mock data resets on reload. Backend not connected.
+            UI preview only. Mock data resets on reload.
           </div>
+
+          {/* Backend connection status */}
+          <div style={{
+            marginTop: 8, padding: "6px 10px",
+            background: api.isLive() ? `${T.good}15` : `${T.muted}15`,
+            border: `1px solid ${api.isLive() ? T.good : T.border}55`,
+            borderRadius: 6,
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            {api.isLive() ? <Cloud size={12} color={T.good} /> : <CloudOff size={12} color={T.muted} />}
+            <span style={{ fontFamily: FONT_MONO, fontSize: 9, letterSpacing: 1,
+              color: api.isLive() ? T.good : T.muted }}>
+              {api.isLive() ? "FOOD DB · CONNECTED" : "FOOD DB · STUB MODE"}
+            </span>
+          </div>
+
           <div style={{ marginTop: 10, display: "flex", gap: 6, padding: 3,
             background: T.surface, borderRadius: 8, border: `1px solid ${T.border}` }}>
             <button onClick={() => setRole("athlete")} type="button"
